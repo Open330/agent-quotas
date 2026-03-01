@@ -1,0 +1,11 @@
+/target
+*.db
+*.db-wal
+*.db-shm
+.omc/
+node_modules/
+admin/.next/
+admin/.vinext/
+admin/out/
+admin/dist/
+.DS_Store
