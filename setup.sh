@@ -5,9 +5,12 @@ set -euo pipefail
 # Sets up the client hook on this machine.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HOOK_SCRIPT="$SCRIPT_DIR/hook/claude-quota-hook.sh"
+HOOK_SCRIPT_CLAUDE="$SCRIPT_DIR/hook/claude-quota-hook.sh"
+HOOK_SCRIPT_CODEX="$SCRIPT_DIR/hook/codex-hook.sh"
+HOOK_SCRIPT_ANTIGRAVITY="$SCRIPT_DIR/hook/antigravity-hook.sh"
 CONFIG_FILE="$HOME/.claude-quota-hook.json"
 SETTINGS_FILE="$HOME/.claude/settings.json"
+CODEX_CONFIG="$HOME/.codex/config.toml"
 
 echo "Claude Quota Monitor - Setup"
 echo "============================"
