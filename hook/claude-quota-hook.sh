@@ -28,6 +28,7 @@ fi
 
 SERVER_URL=$(jq -r '.server_url // empty' "$CONFIG_FILE")
 USERNAME=$(jq -r '.username // empty' "$CONFIG_FILE")
+TOKEN=$(jq -r '.token // empty' "$CONFIG_FILE")
 
 if [[ -z "$SERVER_URL" || -z "$USERNAME" ]]; then
     exit 0
@@ -58,6 +59,7 @@ retry_queue() {
         http_code=$(curl -s -o /dev/null -w '%{http_code}' \
             -X POST "${SERVER_URL}/api/report" \
             -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${TOKEN}" \
             -d "$report" \
             --connect-timeout 5 \
             --max-time 8 2>/dev/null) || http_code="000"
@@ -171,6 +173,7 @@ REPORT=$(jq -n \
 HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' \
     -X POST "${SERVER_URL}/api/report" \
     -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer ${TOKEN}" \
     -d "$REPORT" \
     --connect-timeout 5 \
     --max-time 8 2>/dev/null) || HTTP_CODE="000"

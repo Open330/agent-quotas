@@ -1,16 +1,21 @@
 use std::sync::Mutex;
 use rusqlite::{params, Connection};
-use crate::models::{UsageReport, UserSummary, UserInfo};
+use crate::models::{UsageReport, UserSummary, UserInfo, UserRecord, AdminStats};
+use crate::auth::generate_pat;
 
 pub struct Database {
     conn: Mutex<Connection>,
+    path: String,
 }
 
 impl Database {
     pub fn new(path: &str) -> Result<Self, rusqlite::Error> {
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
-        let db = Database { conn: Mutex::new(conn) };
+        let db = Database {
+            conn: Mutex::new(conn),
+            path: path.to_string(),
+        };
         db.initialize()?;
         Ok(db)
     }
@@ -37,9 +42,158 @@ impl Database {
             );
             CREATE INDEX IF NOT EXISTS idx_usage_username ON usage_reports(username);
             CREATE INDEX IF NOT EXISTS idx_usage_timestamp ON usage_reports(timestamp);
-            CREATE INDEX IF NOT EXISTS idx_usage_session ON usage_reports(session_id);"
+            CREATE INDEX IF NOT EXISTS idx_usage_session ON usage_reports(session_id);
+
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                token TEXT NOT NULL UNIQUE,
+                is_admin INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );"
         )?;
         Ok(())
+    }
+
+    pub fn ensure_admin(&self) {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))
+            .unwrap_or(0);
+        if count == 0 {
+            let token = generate_pat();
+            conn.execute(
+                "INSERT INTO users (username, token, is_admin) VALUES (?1, ?2, 1)",
+                params!["admin", &token],
+            )
+            .expect("Failed to create default admin user");
+            println!("=== Default admin user created ===");
+            println!("Username: admin");
+            println!("Token:    {}", token);
+            println!("==================================");
+        }
+    }
+
+    pub fn validate_token(&self, token: &str) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM users WHERE token = ?1",
+            params![token],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    pub fn is_admin_token(&self, token: &str) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM users WHERE token = ?1 AND is_admin = 1",
+            params![token],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    pub fn get_all_users(&self) -> Result<Vec<UserRecord>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, username, is_admin, created_at FROM users ORDER BY id",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(UserRecord {
+                id: row.get(0)?,
+                username: row.get(1)?,
+                is_admin: row.get::<_, i32>(2)? != 0,
+                created_at: row.get(3)?,
+                token: None,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn create_user(&self, username: &str, is_admin: bool) -> Result<UserRecord, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let token = generate_pat();
+        conn.execute(
+            "INSERT INTO users (username, token, is_admin) VALUES (?1, ?2, ?3)",
+            params![username, &token, is_admin as i32],
+        )?;
+        let id = conn.last_insert_rowid();
+        let created_at: String = conn.query_row(
+            "SELECT created_at FROM users WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )?;
+        Ok(UserRecord {
+            id,
+            username: username.to_string(),
+            is_admin,
+            created_at,
+            token: Some(token),
+        })
+    }
+
+    pub fn delete_user(&self, id: i64) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let affected = conn.execute("DELETE FROM users WHERE id = ?1", params![id])?;
+        Ok(affected > 0)
+    }
+
+    pub fn regenerate_token(&self, id: i64) -> Result<Option<String>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let token = generate_pat();
+        let affected = conn.execute(
+            "UPDATE users SET token = ?1 WHERE id = ?2",
+            params![&token, id],
+        )?;
+        if affected > 0 {
+            Ok(Some(token))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn get_username_by_token(&self, token: &str) -> Result<Option<String>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT username FROM users WHERE token = ?1")?;
+        let mut rows = stmt.query(params![token])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row.get(0)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn get_admin_stats(&self) -> Result<AdminStats, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let total_users: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM users", [], |row| row.get(0),
+        )?;
+        let total_reports: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM usage_reports", [], |row| row.get(0),
+        )?;
+        let total_tokens_processed: i64 = conn.query_row(
+            "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM usage_reports",
+            [], |row| row.get(0),
+        )?;
+        let active_users_5h: i64 = conn.query_row(
+            "SELECT COUNT(DISTINCT username) FROM usage_reports WHERE timestamp > datetime('now', '-5 hours')",
+            [], |row| row.get(0),
+        )?;
+        let active_users_7d: i64 = conn.query_row(
+            "SELECT COUNT(DISTINCT username) FROM usage_reports WHERE timestamp > datetime('now', '-7 days')",
+            [], |row| row.get(0),
+        )?;
+        let db_size_bytes: i64 = std::fs::metadata(&self.path)
+            .map(|m| m.len() as i64)
+            .unwrap_or(0);
+        Ok(AdminStats {
+            total_users,
+            total_reports,
+            total_tokens_processed,
+            active_users_5h,
+            active_users_7d,
+            db_size_bytes,
+        })
     }
 
     pub fn insert_report(&self, report: &UsageReport) -> Result<bool, rusqlite::Error> {

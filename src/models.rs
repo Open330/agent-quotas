@@ -1,5 +1,32 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Serialize, Clone)]
+pub struct UserRecord {
+    pub id: i64,
+    pub username: String,
+    pub is_admin: bool,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateUserRequest {
+    pub username: String,
+    #[serde(default)]
+    pub is_admin: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AdminStats {
+    pub total_users: i64,
+    pub total_reports: i64,
+    pub total_tokens_processed: i64,
+    pub active_users_5h: i64,
+    pub active_users_7d: i64,
+    pub db_size_bytes: i64,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct UsageReport {
     pub username: String,
