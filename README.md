@@ -1,5 +1,7 @@
 # Claude Quota Monitor
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A lightweight quota monitoring server for teams sharing Claude Code, OpenAI Codex CLI, or Google Antigravity subscriptions. Tracks per-user token consumption across 5-hour and 7-day rolling windows with a Rust backend, SQLite storage, and a React admin panel.
 
 ## Quick Start
@@ -322,3 +324,6 @@ claude-quota/
 | Duplicate 409s | Expected — the hook safely retries without double-counting |
 | Admin token lost | Use `POST /api/admin/users/:id/regenerate-token` via another admin account |
 | Admin panel blank | Ensure server is running on `:3000`; check browser console for CORS/proxy errors |
+
+---
+<p align="center"><sub>Part of <a href="https://github.com/Open330">Open330</a> · open source tools for AI-agent workflows · <a href="https://open330.github.io">open330.github.io</a></sub></p>
